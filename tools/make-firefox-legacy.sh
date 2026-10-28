@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+set -e
 #
 # This script assumes a linux environment
 
@@ -41,7 +42,7 @@ rm $DES/js/vapi-usercss.js
 rm $DES/js/vapi-usercss.real.js
 
 echo "*** uBlock0.firefox-legacy: Generating meta..."
-python tools/make-firefox-legacy-meta.py $DES/
+python3 tools/make-firefox-legacy-meta.py $DES/
 
 if [ "$1" = all ]; then
     echo "*** uBlock0.firefox-legacy: Creating package..."
