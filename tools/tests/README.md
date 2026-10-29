@@ -15,7 +15,7 @@ The test script can also be launched from other working directories.
 
 ## denyallow Tests
 
-The denyallow regression suite contains 39 assertions covering:
+The denyallow regression suite contains 45 assertions covering:
 
 - Filter option parsing
 - Origin hostname restrictions
@@ -28,6 +28,7 @@ The denyallow regression suite contains 39 assertions covering:
 - Malformed hostname rejection
 - Unsupported option combinations
 - Multiple originating domains
+- Real-world uAssets exception rules
 
 ## Limitations
 

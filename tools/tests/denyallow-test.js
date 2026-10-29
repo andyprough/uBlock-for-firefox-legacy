@@ -332,4 +332,40 @@ test('Second origin excludes trusted',
 
 console.log('\nOption compatibility tests completed.');
 
+
+// Real-world uAssets exception-rule regression tests.
+console.log('\nReal-world exception tests:');
+
+const exception1 =
+    '@@*.js|$script,3p,domain=sonixgvn.net,' +
+    'denyallow=doubleclick.net|onesignal.com|vlitag.com|googletagmanager.com';
+
+const exception2 =
+    '@@*$script,domain=th.gl,' +
+    'denyallow=amazon-adsystem.com|doubleclick.net|' +
+    'googlesyndication.com|avplayer.com|aniview.com|id5-sync.com';
+
+p.parse(exception1);
+test('First uAssets exception parses', p.unsupported, false);
+
+p.parse(exception2);
+test('Second uAssets exception parses', p.unsupported, false);
+
+loadRules([
+    '*$script,3p,domain=th.gl',
+    exception2
+]);
+
+test('Exception allows other destinations',
+    matchRequest('th.gl', 'static.example'), 2);
+
+test('Exception excludes doubleclick.net',
+    matchRequest('th.gl', 'doubleclick.net'), 1);
+
+test('Exception excludes doubleclick subdomains',
+    matchRequest('th.gl', 'ads.doubleclick.net'), 1);
+
+test('Exception does not apply outside its origin',
+    matchRequest('outside.example', 'static.example'), 0);
+
 console.log('\nTOTAL:', passed, 'tests passed.');
