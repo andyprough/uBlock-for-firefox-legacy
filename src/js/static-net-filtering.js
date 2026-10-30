@@ -1454,6 +1454,42 @@ FilterBucket.load = function(args) {
 registerFilterClass(FilterBucket);
 
 /******************************************************************************/
+
+// Exclude specified destination hostnames from this individual blocking rule.
+// Append this class after existing registrations to preserve their class IDs.
+var FilterDenyAllow = function(domainOpt) {
+    this.domainOpt = domainOpt;
+    this.noneOf = null;
+    this.wrapped = undefined;
+};
+FilterDenyAllow.prototype.match = function(url, tokenBeg) {
+    if ( this.noneOf === null ) {
+        this.noneOf = HNTrieBuilder.fromDomainOpt(this.domainOpt);
+    }
+    return this.noneOf.matches(requestHostnameRegister) === false &&
+           this.wrapped.match(url, tokenBeg);
+};
+FilterDenyAllow.prototype.logData = function() {
+    var out = this.wrapped.logData(),
+        opt = 'denyallow=' + this.domainOpt;
+    out.compiled = [ this.fid, this.domainOpt, out.compiled ];
+    out.opts = out.opts === undefined ? opt : out.opts + ',' + opt;
+    return out;
+};
+FilterDenyAllow.prototype.compile = function() {
+    return [ this.fid, this.domainOpt, this.wrapped.compile() ];
+};
+FilterDenyAllow.compile = function(details) {
+    return [ FilterDenyAllow.fid, details.denyallowOpt ];
+};
+FilterDenyAllow.load = function(args) {
+    var f = new FilterDenyAllow(args[1]);
+    f.wrapped = filterFromCompiledData(args[2]);
+    return f;
+};
+registerFilterClass(FilterDenyAllow);
+
+/******************************************************************************/
 /******************************************************************************/
 
 var FilterParser = function() {
@@ -1527,6 +1563,7 @@ FilterParser.prototype.reset = function() {
     this.fopts = '';
     this.hostnamePure = false;
     this.domainOpt = '';
+    this.denyallowOpt = '';
     this.isRegex = false;
     this.raw = '';
     this.redirect = 0;
@@ -1667,6 +1704,35 @@ FilterParser.prototype.parseOptions = function(s) {
             }
             continue;
         }
+        if ( opt.startsWith('denyallow=') ) {
+            if ( not || this.denyallowOpt !== '' ) {
+                this.unsupported = true;
+                break;
+            }
+            var denyallowOpt = this.parseDomainOption(opt.slice(10));
+            // Only ordinary, non-negated hostnames (no entity wildcards).
+            if (
+                denyallowOpt === '' ||
+                !/^[a-z0-9-]+(?:\.[a-z0-9-]+)*(?:\|[a-z0-9-]+(?:\.[a-z0-9-]+)*)*$/i.test(denyallowOpt)
+            ) {
+                this.unsupported = true;
+                break;
+            }
+            // Reject invalid DNS label lengths and hyphen placement.
+            if ( denyallowOpt.split('|').some(function(host) {
+                return host.length > 253 ||
+                    host.split('.').some(function(label) {
+                        return label.length > 63 ||
+                            label.charAt(0) === '-' ||
+                            label.endsWith('-');
+                    });
+            }) ) {
+                this.unsupported = true;
+                break;
+            }
+            this.denyallowOpt = denyallowOpt.toLowerCase();
+            continue;
+        }
         if ( opt === 'important' ) {
             this.important = Important;
             continue;
@@ -1707,6 +1773,11 @@ FilterParser.prototype.parseOptions = function(s) {
         break;
     }
 
+    // denyallow requires a scoped origin and cannot be used in redirect rules.
+    if ( this.denyallowOpt !== '' &&
+         (this.domainOpt === '' || this.redirect !== 0) ) {
+        this.unsupported = true;
+    }
     // Redirect rules can't be exception filters.
     if ( this.redirect !== 0 && this.action !== BlockAction ) {
         this.unsupported = true;
@@ -2371,6 +2442,11 @@ FilterContainer.prototype.compile = function(raw, writer) {
     }
 
     var fwrapped;
+    if ( parsed.denyallowOpt !== '' ) {
+        fwrapped = fdata;
+        fdata = FilterDenyAllow.compile(parsed);
+        fdata.push(fwrapped);
+    }
     if ( parsed.domainOpt !== '' ) {
         fwrapped = fdata;
         fdata = FilterOrigin.compile(parsed);
