@@ -952,6 +952,126 @@ FilterOriginMixedSet.prototype = Object.create(FilterOrigin.prototype, {
     },
 });
 
+
+// Match an entity and its subdomain descendants.
+// The entity is derived using the Public Suffix List.
+var originEntityMatches = function(entitySet, entity) {
+    if ( entity === '' ) {
+        return false;
+    }
+
+    for (;;) {
+        if ( entitySet.has(entity) ) {
+            return true;
+        }
+
+        var dot = entity.indexOf('.');
+
+        if ( dot === -1 ) {
+            return false;
+        }
+
+        entity = entity.slice(dot + 1);
+    }
+};
+
+/******************************************************************************/
+
+var FilterOriginEntitySet = function(domainOpt) {
+    FilterOrigin.call(this);
+    this.domainOpt = domainOpt;
+
+    var positiveHosts = [];
+    var negativeHosts = [];
+    var positiveEntities = [];
+    var negativeEntities = [];
+
+    var origins = domainOpt.split('|');
+
+    for ( var i = 0; i < origins.length; i++ ) {
+        var origin = origins[i];
+        var negative = origin.charAt(0) === '~';
+
+        if ( negative ) {
+            origin = origin.slice(1);
+        }
+
+        if ( origin.endsWith('.*') ) {
+            if ( negative ) {
+                negativeEntities.push(origin);
+            } else {
+                positiveEntities.push(origin);
+            }
+        } else if ( negative ) {
+            negativeHosts.push(origin);
+        } else {
+            positiveHosts.push(origin);
+        }
+    }
+
+    this.oneOf = positiveHosts.length !== 0
+        ? HNTrieBuilder.fromIterable(positiveHosts)
+        : null;
+
+    this.noneOf = negativeHosts.length !== 0
+        ? HNTrieBuilder.fromIterable(negativeHosts)
+        : null;
+
+    this.oneOfEntity = new Set(positiveEntities);
+    this.noneOfEntity = new Set(negativeEntities);
+
+    this.hasPositive =
+        positiveHosts.length !== 0 ||
+        positiveEntities.length !== 0;
+};
+
+FilterOriginEntitySet.prototype = Object.create(
+    FilterOrigin.prototype,
+    {
+        constructor: {
+            value: FilterOriginEntitySet
+        },
+        toDomainOpt: {
+            value: function() {
+                return this.domainOpt;
+            }
+        },
+        matchOrigin: {
+            value: function() {
+                var hostname = pageHostnameRegister;
+
+                // Negative hostname scopes take precedence.
+                if ( this.noneOf !== null &&
+                     this.noneOf.matches(hostname) ) {
+                    return false;
+                }
+
+                // Resolve the registrable domain using the PSL.
+                var domain = µb.URI.domainFromHostname(hostname) || '';
+                var entity = domain !== ''
+                    ? hostname.slice(0, hostname.length - domain.length) +
+                      µb.URI.entityFromDomain(domain)
+                    : '';
+
+                // Negative entity scopes also take precedence.
+                if ( originEntityMatches(this.noneOfEntity, entity) ) {
+                    return false;
+                }
+
+                // With only exclusions, all other origins match.
+                if ( this.hasPositive === false ) {
+                    return true;
+                }
+
+                return (
+                    this.oneOf !== null &&
+                    this.oneOf.matches(hostname)
+                ) || originEntityMatches(this.oneOfEntity, entity);
+            }
+        }
+    }
+);
+
 // *** end of specialized origin matchers
 
 // The optimal test function is picked according to the content of the
@@ -963,6 +1083,9 @@ FilterOriginMixedSet.prototype = Object.create(FilterOrigin.prototype, {
 // instances out of ~2,800.
 
 FilterOrigin.matcherFactory = function(domainOpt) {
+    if ( domainOpt.indexOf('.*') !== -1 ) {
+        return new FilterOriginEntitySet(domainOpt);
+    }
     // One hostname
     if ( domainOpt.indexOf('|') === -1 ) {
         if ( domainOpt.charCodeAt(0) === 0x7E /* '~' */ ) {
@@ -1482,8 +1605,21 @@ FilterParser.prototype.parseDomainOption = function(s) {
         }
         s = hostnames.join('|');
     }
-    if ( this.reBadDomainOptChars.test(s) ) {
+    // Allow entity-style origins, but not arbitrary wildcards.
+    if ( this.reBadDomainOptChars.test(s.replace(/\.\*(?=\||$)/g, '')) ) {
         return '';
+    }
+    if ( s.indexOf('*') !== -1 ) {
+        var origins = s.split('|');
+        for ( var i = 0; i < origins.length; i++ ) {
+            var origin = origins[i].charAt(0) === '~'
+                ? origins[i].slice(1)
+                : origins[i];
+            if ( origin.indexOf('*') !== -1 &&
+                 !/^(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+\*$/i.test(origin) ) {
+                return '';
+            }
+        }
     }
     return s;
 };
