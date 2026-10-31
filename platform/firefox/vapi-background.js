@@ -3462,7 +3462,7 @@ vAPI.commands = (function() {
 /******************************************************************************/
 
 var optionsObserver = (function() {
-    var addonId = 'uBlock0@raymondhill.net';
+    var addonId = '{29ac9244-0d41-494f-b279-ce624c87658a}';
 
     var commandHandler = function() {
         switch ( this.id ) {
