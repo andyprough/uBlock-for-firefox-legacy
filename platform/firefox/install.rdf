@@ -6,7 +6,6 @@
         <em:name>{name}</em:name>
         <em:description>{description}</em:description>
         <em:homepageURL>{homepage}</em:homepageURL>
-        <em:updateURL>{update}</em:updateURL>
         <em:creator>{author}</em:creator>
         <em:developer>Deathamns</em:developer>
         <em:developer>Alex Vallat</em:developer>
