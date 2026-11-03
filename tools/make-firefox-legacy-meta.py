@@ -85,8 +85,7 @@ with open(version_filepath) as f:
     version = f.read().strip()
     manifest['version'] = version
 
-manifest['homepage'] = 'https://github.com/UCyborg/uBlock-for-firefox-legacy'
-manifest['update'] = 'https://raw.githubusercontent.com/UCyborg/uBlock-for-firefox-legacy/master/dist/update/update.xml'
+manifest['homepage'] = 'https://github.com/andyprough/uBlock-for-firefox-legacy'
 manifest['description'] = descriptions['en']
 del descriptions['en']
 
