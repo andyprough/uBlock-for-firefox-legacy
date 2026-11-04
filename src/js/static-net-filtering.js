@@ -1564,6 +1564,7 @@ FilterParser.prototype.reset = function() {
     this.hostnamePure = false;
     this.domainOpt = '';
     this.denyallowOpt = '';
+    this.removeparamOpt = '';
     this.isRegex = false;
     this.raw = '';
     this.redirect = 0;
@@ -1733,6 +1734,21 @@ FilterParser.prototype.parseOptions = function(s) {
             this.denyallowOpt = denyallowOpt.toLowerCase();
             continue;
         }
+        // Initial support for literal removeparam names only.
+        if ( opt.startsWith('removeparam=') ) {
+            var paramName = opt.slice(12);
+            if (
+                not ||
+                this.removeparamOpt !== '' ||
+                !/^[A-Za-z0-9_.-]+$/.test(paramName)
+            ) {
+                this.unsupported = true;
+                break;
+            }
+            this.removeparamOpt = paramName;
+            continue;
+        }
+
         if ( opt === 'important' ) {
             this.important = Important;
             continue;
@@ -2177,6 +2193,7 @@ FilterContainer.prototype.reset = function() {
     this.badFilters = new Set();
     this.categories = new Map();
     this.dataFilters = new Map();
+    this.removeparamFilters = new Map();
     this.filterParser.reset();
 
     // Runtime registers
@@ -2218,12 +2235,15 @@ FilterContainer.prototype.freeze = function() {
         // because they require special matching algorithm (unlike other
         // filters, ALL hits must be reported).
         if ( fdata[0] === filterDataHolderId ) {
+            let target = fdata[1] === 'removeparam'
+                ? this.removeparamFilters
+                : this.dataFilters;
             let entry = new FilterDataHolderEntry(bits, tokenHash, fdata);
-            let bucket = this.dataFilters.get(tokenHash);
+            let bucket = target.get(tokenHash);
             if ( bucket !== undefined ) {
                 entry.next = bucket;
             }
-            this.dataFilters.set(tokenHash, entry);
+            target.set(tokenHash, entry);
             continue;
         }
 
@@ -2305,7 +2325,8 @@ FilterContainer.prototype.toSelfie = function() {
         blockFilterCount: this.blockFilterCount,
         discardedCount: this.discardedCount,
         categories: categoriesToSelfie(this.categories),
-        dataFilters: dataFiltersToSelfie(this.dataFilters)
+        dataFilters: dataFiltersToSelfie(this.dataFilters),
+        removeparamFilters: dataFiltersToSelfie(this.removeparamFilters)
     };
 };
 
@@ -2347,6 +2368,17 @@ FilterContainer.prototype.fromSelfie = function(selfie) {
         }
         this.dataFilters.set(entry.tokenHash, entry);
     }
+
+    entries = JSON.parse(selfie.removeparamFilters || '[]');
+    i = entries.length;
+    while ( i-- ) {
+        entry = FilterDataHolderEntry.load(entries[i]);
+        bucket = this.removeparamFilters.get(entry.tokenHash);
+        if ( bucket !== undefined ) {
+            entry.next = bucket;
+        }
+        this.removeparamFilters.set(entry.tokenHash, entry);
+    }
 };
 
 /******************************************************************************/
@@ -2372,6 +2404,20 @@ FilterContainer.prototype.compile = function(raw, writer) {
         const who = writer.properties.get('assetKey') || '?';
         µb.logger.writeOne('', 'error', `Invalid network filter in ${who}: ${raw}`);
         return false;
+    }
+
+    // URL transformations use dedicated data-filter storage.
+    // They must never enter ordinary blocking categories.
+    if ( parsed.removeparamOpt !== '' ) {
+        if (
+            parsed.dataType !== undefined ||
+            parsed.redirect !== 0 ||
+            parsed.denyallowOpt !== ''
+        ) {
+            return false;
+        }
+        parsed.dataType = 'removeparam';
+        parsed.dataStr = parsed.removeparamOpt;
     }
 
     // Redirect rule
